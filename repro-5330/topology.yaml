@@ -1,0 +1,89 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: demo
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: coffee
+  namespace: demo
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: coffee
+  template:
+    metadata:
+      labels:
+        app: coffee
+    spec:
+      containers:
+        - name: coffee
+          image: nginxdemos/nginx-hello:plain-text
+          ports:
+            - containerPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: coffee
+  namespace: demo
+spec:
+  ports:
+    - port: 80
+      targetPort: 8080
+      protocol: TCP
+      name: http
+  selector:
+    app: coffee
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: gateway
+  namespace: demo
+spec:
+  gatewayClassName: nginx
+  listeners:
+    - name: http
+      port: 80
+      protocol: HTTP
+      hostname: "*.example.com"
+---
+apiVersion: gateway.nginx.org/v1alpha1
+kind: SnippetsFilter
+metadata:
+  name: churn-sf
+  namespace: demo
+spec:
+  snippets:
+    - context: http.server.location
+      value: |
+        add_header X-Churn-Iter "0" always;
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: coffee
+  namespace: demo
+spec:
+  parentRefs:
+    - name: gateway
+      sectionName: http
+  hostnames:
+    - "cafe.example.com"
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /coffee
+      filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: gateway.nginx.org
+            kind: SnippetsFilter
+            name: churn-sf
+      backendRefs:
+        - name: coffee
+          port: 80
